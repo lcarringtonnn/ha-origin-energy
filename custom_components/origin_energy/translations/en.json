@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "A password can't be used here — Origin's login form is behind bot protection that blocks automated sign-ins.\n\n1. Sign in at originenergy.com.au in your browser (with DevTools closed).\n2. In the same tab, go to https://id.originenergy.com.au/.well-known/jwks.json — this just loads a page on the right domain so the cookie becomes visible.\n3. Open DevTools → Application → Cookies → https://id.originenergy.com.au.\n4. Copy the value of the `auth0` cookie (not `auth0_compat`) and paste it below.\n\nFull instructions, including a fallback method, are in docs/session-cookie.md.",
+        "description": "A password can't be used here — Origin's login form is behind bot protection that blocks automated sign-ins.\n\n1. Sign in at originenergy.com.au in your browser (with DevTools closed).\n2. In the same tab, go to {jwks_url} — this just loads a page on the right domain so the cookie becomes visible.\n3. Open DevTools → Application → Cookies → {cookie_origin}.\n4. Copy the value of the `auth0` cookie (not `auth0_compat`) and paste it below.\n\nFull instructions, including a fallback method, are in docs/session-cookie.md.",
         "data": {
           "session_cookie": "Session cookie (auth0)"
         }

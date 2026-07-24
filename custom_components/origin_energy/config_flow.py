@@ -28,6 +28,7 @@ from .auth import (
     current_session_cookie,
 )
 from .const import (
+    AUTH_DOMAIN,
     CONF_AGREEMENT_ID,
     CONF_SESSION_COOKIE,
     CONF_TIME_UNIT,
@@ -37,6 +38,11 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+STEP_USER_PLACEHOLDERS = {
+    "jwks_url": f"https://{AUTH_DOMAIN}/.well-known/jwks.json",
+    "cookie_origin": f"https://{AUTH_DOMAIN}",
+}
 
 STEP_USER_DATA_SCHEMA = vol.Schema({vol.Required(CONF_SESSION_COOKIE): str})
 
@@ -144,6 +150,7 @@ class OriginEnergyConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=STEP_USER_DATA_SCHEMA,
             errors=errors,
+            description_placeholders=STEP_USER_PLACEHOLDERS,
         )
 
     async def async_step_reauth(
