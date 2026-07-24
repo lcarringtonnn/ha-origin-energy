@@ -44,9 +44,16 @@ meter — for that you want a CT clamp or a smart plug.
 
 ### HACS
 
-1. HACS → ⋮ → **Custom repositories**.
-2. Add this repository's URL, category **Integration**.
-3. Install **Origin Energy**, then restart Home Assistant.
+1. Install [HACS](https://hacs.xyz/docs/setup/download) if you haven't already.
+2. [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=JKook-Plus&repository=ha-origin-energy&category=integration)
+3. Press **Download**.
+4. Restart Home Assistant.
+
+That button adds this repository to HACS for you. If it doesn't work — the
+My Home Assistant links need to be [set up
+once](https://my.home-assistant.io/) per instance — do it by hand instead:
+**HACS → ⋮ → Custom repositories**, add this repository's URL with category
+**Integration**, then install **Origin Energy** and restart.
 
 ### Manual
 
@@ -55,7 +62,10 @@ directory and restart Home Assistant.
 
 ## Set up
 
-**Settings → Devices & services → Add integration → Origin Energy.**
+[![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=origin_energy)
+
+Or by hand: **Settings → Devices & services → Add integration → Origin
+Energy.**
 
 It asks for one thing: a session cookie. Origin's login form is behind
 Kasada bot protection that refuses any non-browser client, so there is no
