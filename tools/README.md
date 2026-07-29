@@ -71,6 +71,14 @@ conclusions are only trustworthy if the method is inspectable.
 | `probe_field_support.py` | which fields can the backend actually resolve? |
 | `probe_reliability.py` | is `INTERNAL_SERVER_ERROR` about query size, or flakiness? |
 | `probe_filter_arg.py` | why does an otherwise identical query fail? (`filter: null`) |
+| `probe_freshness.py` | what time of day does new usage data actually land? |
+
+`probe_freshness.py` is the long-running one: it watches
+`lastReadingDate` for a day or more and records the wall-clock moment it
+advances, which is what a sensible update schedule should be pinned to.
+Give it at least 26 hours (`--hours 30` by default) so a daily
+publication cannot fall in the gap between the first and last poll, and
+re-read the log later with `--summarise-only`.
 
 ### Writing another one
 
