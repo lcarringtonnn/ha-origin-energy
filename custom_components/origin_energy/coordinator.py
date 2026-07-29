@@ -60,11 +60,14 @@ from .const import (
     CONF_SESSION_COOKIE,
     CONF_TIME_UNIT,
     CONF_TIMEZONE,
+    CONF_UPDATE_INTERVAL_HOURS,
     DEFAULT_TIME_UNIT,
+    DEFAULT_UPDATE_INTERVAL_HOURS,
     DOMAIN,
     FIRST_RUN_HISTORY_DAYS,
+    MAX_UPDATE_INTERVAL_HOURS,
+    MIN_UPDATE_INTERVAL_HOURS,
     OVERLAP_DAYS,
-    UPDATE_INTERVAL_HOURS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -86,6 +89,25 @@ BASELINE_LOOKBACK_DAYS = 30
 # Tokens last an hour and a long backfill can outlive one, which would
 # otherwise fail every remaining window with a 401.
 TOKEN_REFRESH_MARGIN = timedelta(minutes=5)
+
+
+def configured_update_interval(config_entry: ConfigEntry) -> timedelta:
+    """Poll interval from the entry's options, clamped to the sane range.
+
+    Clamped rather than trusted: the value reaches here from a stored
+    options dict, which survives downgrades and hand-edited
+    .storage files, and a zero or negative interval would spin the
+    coordinator against Origin's API as fast as the event loop allows.
+    """
+    hours = config_entry.options.get(
+        CONF_UPDATE_INTERVAL_HOURS, DEFAULT_UPDATE_INTERVAL_HOURS
+    )
+    try:
+        hours = float(hours)
+    except (TypeError, ValueError):
+        hours = DEFAULT_UPDATE_INTERVAL_HOURS
+    hours = min(max(hours, MIN_UPDATE_INTERVAL_HOURS), MAX_UPDATE_INTERVAL_HOURS)
+    return timedelta(hours=hours)
 
 
 def statistic_slug(value: str) -> str:
@@ -137,7 +159,7 @@ class OriginEnergyCoordinator(DataUpdateCoordinator[OriginEnergyData]):
             _LOGGER,
             config_entry=config_entry,
             name=DOMAIN,
-            update_interval=timedelta(hours=UPDATE_INTERVAL_HOURS),
+            update_interval=configured_update_interval(config_entry),
         )
         # No headers= here: Home Assistant replaces a session's default
         # headers with its own User-Agent right after construction, so
@@ -159,6 +181,26 @@ class OriginEnergyCoordinator(DataUpdateCoordinator[OriginEnergyData]):
         self._import_lock = asyncio.Lock()
         self._access_token: str | None = None
         self._token_expires_at: datetime | None = None
+
+    def async_adopt_update_interval(self) -> bool:
+        """Take up a newly-configured poll interval. True if it changed.
+
+        The caller needs the return value because this fires for *any*
+        config entry write, and most of them are ours rather than the
+        user's -- persisting a rolled session cookie, setting the
+        backfill-complete flag. Reacting to those would re-anchor the
+        poll schedule every time the cookie rotated.
+        """
+        interval = configured_update_interval(self.config_entry)
+        if interval == self.update_interval:
+            return False
+        _LOGGER.debug(
+            "Origin Energy poll interval changed from %s to %s",
+            self.update_interval,
+            interval,
+        )
+        self.update_interval = interval
+        return True
 
     async def async_close(self) -> None:
         """Stop the backfill before the entry finishes unloading.

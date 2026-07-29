@@ -28,9 +28,12 @@ to the start of your agreement.
 - One `sensor.origin_energy_last_update` timestamp for automations that
   want to know the import ran.
 
-Origin publishes usage roughly once a day and always a day or so behind,
-so this polls **every 24 hours**. It is not, and cannot be, a live power
-meter — for that you want a CT clamp or a smart plug.
+Origin publishes usage once a day and always a day or so behind, in a
+single batch covering the whole previous day. The hour that batch lands
+moves around, so this polls **every 4 hours** by default rather than
+racing it once a day — change it under **Configure** on the integration
+(1–24 hours). It is not, and cannot be, a live power meter — for that you
+want a CT clamp or a smart plug.
 
 ## Requirements
 

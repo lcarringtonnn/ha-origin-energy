@@ -27,6 +27,20 @@
       "wrong_account": "That sign-in is for a different Origin Energy account. Use the account this entry was set up with, or add a second entry for the other one."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Origin Energy options",
+        "description": "Origin publishes each day's usage in a single overnight batch, but the time it lands moves around by several hours. Polling more often than once a day means a late batch is still picked up the same day.\n\nEach poll is a single request, and re-reading a day that was already imported is harmless — it just corrects it.",
+        "data": {
+          "update_interval_hours": "Update interval (hours)"
+        },
+        "data_description": {
+          "update_interval_hours": "How often to check Origin for new usage data. Default is 4 hours; 24 restores the original once-a-day behaviour."
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "last_update": {

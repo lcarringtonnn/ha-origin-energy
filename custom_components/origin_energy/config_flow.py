@@ -12,8 +12,20 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import SOURCE_REAUTH, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    SOURCE_REAUTH,
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+)
 
 from .api import (
     OriginEnergyApiClient,
@@ -33,8 +45,12 @@ from .const import (
     CONF_SESSION_COOKIE,
     CONF_TIME_UNIT,
     CONF_TIMEZONE,
+    CONF_UPDATE_INTERVAL_HOURS,
     DEFAULT_TIMEZONE,
+    DEFAULT_UPDATE_INTERVAL_HOURS,
     DOMAIN,
+    MAX_UPDATE_INTERVAL_HOURS,
+    MIN_UPDATE_INTERVAL_HOURS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,6 +67,12 @@ class OriginEnergyConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Origin Energy."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OriginEnergyOptionsFlow:
+        """Expose the Configure dialog on the integration entry."""
+        return OriginEnergyOptionsFlow()
 
     def _configured_agreement_id(self) -> str | None:
         """Pin re-auth to the agreement this entry already tracks.
@@ -188,4 +210,51 @@ class OriginEnergyConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="reauth_confirm",
             data_schema=STEP_USER_DATA_SCHEMA,
             errors=errors,
+        )
+
+
+class OriginEnergyOptionsFlow(OptionsFlow):
+    """Let the poll interval be changed without editing the source.
+
+    Origin publishes each day's usage in one batch at a time that moves
+    around by hours (see DEFAULT_UPDATE_INTERVAL_HOURS), so the right
+    interval depends on how promptly someone wants yesterday's data --
+    which is a preference, not something the integration can derive.
+    """
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(
+                data={
+                    # The number selector hands back a float; storing the
+                    # int keeps the stored options readable and avoids
+                    # 4.0 != 4 comparing unequal against the default.
+                    CONF_UPDATE_INTERVAL_HOURS: int(
+                        user_input[CONF_UPDATE_INTERVAL_HOURS]
+                    )
+                }
+            )
+
+        current = self.config_entry.options.get(
+            CONF_UPDATE_INTERVAL_HOURS, DEFAULT_UPDATE_INTERVAL_HOURS
+        )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_UPDATE_INTERVAL_HOURS, default=current
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=MIN_UPDATE_INTERVAL_HOURS,
+                            max=MAX_UPDATE_INTERVAL_HOURS,
+                            step=1,
+                            mode=NumberSelectorMode.BOX,
+                            unit_of_measurement="hours",
+                        )
+                    )
+                }
+            ),
         )

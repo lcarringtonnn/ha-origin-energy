@@ -48,6 +48,11 @@ CONF_SESSION_COOKIE = "session_cookie"
 CONF_AGREEMENT_ID = "agreement_id"
 CONF_TIMEZONE = "timezone"
 CONF_TIME_UNIT = "time_unit"
+# Poll interval in hours, editable from the integration's Configure
+# dialog. Lives in entry.options rather than entry.data: options are the
+# half a user owns, and keeping it out of data means the re-auth flow
+# can rewrite credentials without touching it.
+CONF_UPDATE_INTERVAL_HOURS = "update_interval_hours"
 # Set once the historical backfill has run to completion. Until it is set
 # the backfill restarts from the beginning, so an interrupted one (a
 # restart mid-run) resumes rather than leaving a permanent hole.
@@ -67,9 +72,25 @@ DEFAULT_TIME_UNIT = "DAILY"
 
 DEFAULT_TIMEZONE = "Australia/Sydney"
 
-# Origin/Kraken only updates usage once a day, so polling more often than
-# this just re-fetches the same data.
-UPDATE_INTERVAL_HOURS = 24
+# Origin publishes usage once a day, in a single batch covering the whole
+# previous local day -- but *when* that batch lands moves around. Measured
+# on a live account (tools/probe_freshness.py, 92 polls over 30 h): one
+# publication was pinned to between 08:53 and 09:13 local, while the next
+# day's had still not arrived by 09:54 and was present by 18:26.
+#
+# A once-daily poll therefore races the batch, and losing that race parks
+# the integration a full day behind until the following day's poll. The
+# interval is well under that spread instead, so no single miss matters.
+# Re-polling is cheap and safe: it is one GraphQL query, and the trailing
+# re-import (see OVERLAP_DAYS) is idempotent.
+DEFAULT_UPDATE_INTERVAL_HOURS = 4
+
+# Bounds offered in the options flow. The lower bound is politeness
+# towards a free cloud API rather than a technical limit; the upper is the
+# old once-daily behaviour, which is still a reasonable choice for anyone
+# who only looks at yesterday's totals.
+MIN_UPDATE_INTERVAL_HOURS = 1
+MAX_UPDATE_INTERVAL_HOURS = 24
 
 # Re-fetch a small trailing window on every update since Origin sometimes
 # revises the last day or two of usage/cost after the fact. This covers
