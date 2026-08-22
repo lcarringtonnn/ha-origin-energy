@@ -11,6 +11,7 @@ import aiohttp
 from aiohttp import ClientSession
 
 from .const import (
+    ELECTRICITY_SERVICE_TYPES,
     BROWSER_HEADERS,
     DEFAULT_QUERY_DAYS,
     DEFAULT_TIME_UNIT,
@@ -63,6 +64,25 @@ query AccountDetailsQuery($type: ServiceType!) {
             identifier
           }
         }
+        ... on EmbeddedElectricityService {
+          agreementId
+          type
+          active
+          validFrom
+          validTo
+          serviceState
+          availableUsageTimeUnits
+          meterPoint {
+            identifier
+          }
+          property {
+            address {
+              components {
+                timezone
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -109,6 +129,25 @@ query AccountUsageQuery($agreementId: String!, $type: ServiceType!, $timeUnit: U
             lastReadingDate
             hasFeedIn
             hasMissingDataPoints
+            unitsOfMeasure {
+              totalConsumedEnergy
+              totalCost
+            }
+            dataPoints {
+              type
+              startDate
+              endDate
+              totalConsumedEnergy
+              totalCost
+              usageCost
+              supplyCost
+            }
+          }
+        }
+        ... on EmbeddedElectricityService {
+          usage(timeUnit: $timeUnit, startDate: $startDate, endDate: $endDate, orderBy: START_DATE_ASC) {
+            lastReadingDate
+            hasFeedIn
             unitsOfMeasure {
               totalConsumedEnergy
               totalCost
@@ -334,6 +373,29 @@ class OriginEnergyApiClient:
         """
         data = await self._graphql(ACCOUNT_DETAILS_QUERY, {"type": service_type})
         return _dig(data, "viewer", "kraken", "services", default=[])
+
+    async def async_get_all_electricity_services(
+        self,
+    ) -> list[dict[str, Any]]:
+        """Every electricity-like service on the account, across service types.
+
+        Standard and embedded-network meters live under different
+        ServiceType values, so both are queried and merged (de-duplicated by
+        agreementId). Used at setup to discover which one the account has.
+        """
+        services: list[dict[str, Any]] = []
+        seen: set[str | None] = set()
+        for service_type in ELECTRICITY_SERVICE_TYPES:
+            try:
+                found = await self.async_get_services(service_type)
+            except OriginEnergyApiError:
+                continue
+            for service in found:
+                key = service.get("agreementId")
+                if key not in seen:
+                    seen.add(key)
+                    services.append(service)
+        return services
 
     async def async_get_usage(
         self,

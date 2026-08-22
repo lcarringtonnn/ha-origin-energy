@@ -48,6 +48,10 @@ CONF_SESSION_COOKIE = "session_cookie"
 CONF_AGREEMENT_ID = "agreement_id"
 CONF_TIMEZONE = "timezone"
 CONF_TIME_UNIT = "time_unit"
+# Which Origin ServiceType this entry tracks. Embedded-network sites
+# (units/apartments behind a parent meter) surface as EMBEDDED_ELECTRICITY
+# and never appear under plain ELECTRICITY.
+CONF_SERVICE_TYPE = "service_type"
 # Poll interval in hours, editable from the integration's Configure
 # dialog. Lives in entry.options rather than entry.data: options are the
 # half a user owns, and keeping it out of data means the re-auth flow
@@ -69,6 +73,13 @@ CONF_BACKFILL_COMPLETE = "backfill_complete"
 # basic accumulation meter won't offer anything below DAILY.
 PREFERRED_TIME_UNITS = ("HOURLY", "DAILY")
 DEFAULT_TIME_UNIT = "DAILY"
+
+# Electricity service types to search when discovering an account. Embedded
+# meters report only "BILLING" in availableUsageTimeUnits yet actually serve
+# HOURLY, so that field is not trusted; instead the finest granularity that
+# returns data is probed in this order at setup.
+ELECTRICITY_SERVICE_TYPES = ("ELECTRICITY", "EMBEDDED_ELECTRICITY")
+PROBE_TIME_UNITS = ("HOURLY", "DAILY", "BILLING")
 
 DEFAULT_TIMEZONE = "Australia/Sydney"
 

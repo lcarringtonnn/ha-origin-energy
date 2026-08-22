@@ -56,6 +56,7 @@ from .auth import (
 )
 from .const import (
     CONF_AGREEMENT_ID,
+    CONF_SERVICE_TYPE,
     CONF_BACKFILL_COMPLETE,
     CONF_SESSION_COOKIE,
     CONF_TIME_UNIT,
@@ -170,6 +171,13 @@ class OriginEnergyCoordinator(DataUpdateCoordinator[OriginEnergyData]):
         self.agreement_id: str = config_entry.data[CONF_AGREEMENT_ID]
         self.timezone = ZoneInfo(config_entry.data[CONF_TIMEZONE])
         self.time_unit: str = config_entry.data.get(CONF_TIME_UNIT, DEFAULT_TIME_UNIT)
+        self.service_type: str = config_entry.data.get(
+            CONF_SERVICE_TYPE, "ELECTRICITY"
+        )
+        # Flat usage rate ($/kWh), derived from billing data at runtime.
+        # Embedded meters return null cost on sub-billing points, so hourly
+        # cost is computed as consumption x this rate. None until derived.
+        self.usage_rate: float | None = None
 
         id_prefix = statistic_slug(self.agreement_id)
         self.consumption_statistic_id = f"{DOMAIN}:{id_prefix}_energy_consumption"
@@ -267,7 +275,8 @@ class OriginEnergyCoordinator(DataUpdateCoordinator[OriginEnergyData]):
     async def _async_update_data(self) -> OriginEnergyData:
         # Resolve auth up front so an expired session raises before any of
         # the import work, and surfaces as a re-auth prompt.
-        await self._async_api()
+        api = await self._async_api()
+        await self._async_refresh_rate(api)
 
         if self.config_entry.data.get(CONF_BACKFILL_COMPLETE):
             try:
@@ -288,6 +297,42 @@ class OriginEnergyCoordinator(DataUpdateCoordinator[OriginEnergyData]):
     # ------------------------------------------------------------------
     # History backfill
     # ------------------------------------------------------------------
+
+    async def _async_refresh_rate(self, api: OriginEnergyApiClient) -> None:
+        """Derive the flat usage rate ($/kWh) from recent billing data.
+
+        Embedded-network meters serve hourly consumption but only calculate
+        cost per billing period, leaving totalCost null on hourly points. For
+        a single flat tariff the hourly cost is consumption x rate, and the
+        rate is recovered from any complete billing period as
+        usageCost / consumed energy. Silently leaves the previous value (or
+        None) in place on failure; _build_statistics falls back accordingly.
+        """
+        now = dt_util.now(self.timezone)
+        try:
+            window = await api.async_get_usage(
+                self.agreement_id,
+                now - timedelta(days=95),
+                now,
+                "BILLING",
+                service_type=self.service_type,
+            )
+        except OriginEnergyApiError as err:
+            _LOGGER.debug("Could not derive Origin usage rate: %s", err)
+            return
+
+        rate: float | None = None
+        for point in window.points:
+            usage_cost = point.get("usageCost")
+            energy = point.get("totalConsumedEnergy")
+            if usage_cost is None or not energy:
+                continue
+            # usageCost is CENT, energy is WATT_HOUR:
+            # (cents/100 -> $) / (Wh/1000 -> kWh) == cents / Wh * 10
+            rate = (usage_cost / energy) * 10.0
+        if rate is not None:
+            self.usage_rate = rate
+            _LOGGER.debug("Origin usage rate $%.5f/kWh", rate)
 
     def _start_backfill(self) -> None:
         """Kick off the history import without holding up setup."""
@@ -347,7 +392,7 @@ class OriginEnergyCoordinator(DataUpdateCoordinator[OriginEnergyData]):
         cap = dt_util.now(self.timezone) - timedelta(days=FIRST_RUN_HISTORY_DAYS)
         try:
             api = await self._async_api()
-            services = await api.async_get_services()
+            services = await api.async_get_services(self.service_type)
         except OriginEnergyApiError as err:
             _LOGGER.debug("Could not read service validity (%s), using cap", err)
             return cap
@@ -384,7 +429,11 @@ class OriginEnergyCoordinator(DataUpdateCoordinator[OriginEnergyData]):
         now = dt_util.now(self.timezone)
         api = await self._async_api()
         probe = await api.async_get_usage(
-            self.agreement_id, now - timedelta(days=2), now, self.time_unit
+            self.agreement_id,
+            now - timedelta(days=2),
+            now,
+            self.time_unit,
+            service_type=self.service_type,
         )
         last_reading = probe.last_reading_date
         if last_reading is not None:
@@ -507,7 +556,11 @@ class OriginEnergyCoordinator(DataUpdateCoordinator[OriginEnergyData]):
             # Re-resolved per window: a long backfill outlives one token.
             api = await self._async_api()
             result = await api.async_get_usage(
-                self.agreement_id, window_start, window_end, self.time_unit
+                self.agreement_id,
+                window_start,
+                window_end,
+                self.time_unit,
+                service_type=self.service_type,
             )
 
             consumption_stats, cost_stats = self._build_statistics(result, cursor)
@@ -568,7 +621,15 @@ class OriginEnergyCoordinator(DataUpdateCoordinator[OriginEnergyData]):
                 continue
 
             consumption_kwh = point["totalConsumedEnergy"] * energy_scale
-            cost_dollars = (point.get("totalCost") or 0) * cost_scale
+            raw_cost = point.get("totalCost")
+            if raw_cost is not None:
+                cost_dollars = raw_cost * cost_scale
+            elif self.usage_rate is not None:
+                # Sub-billing points on embedded meters carry no cost; derive
+                # it from the flat usage rate.
+                cost_dollars = consumption_kwh * self.usage_rate
+            else:
+                cost_dollars = 0.0
 
             cursor.consumption_sum += consumption_kwh
             cursor.cost_sum += cost_dollars

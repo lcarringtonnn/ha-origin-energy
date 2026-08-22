@@ -19,6 +19,8 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
+from datetime import datetime, timedelta, timezone
+
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.selector import (
@@ -42,8 +44,11 @@ from .auth import (
 from .const import (
     AUTH_DOMAIN,
     CONF_AGREEMENT_ID,
+    CONF_SERVICE_TYPE,
+    PROBE_TIME_UNITS,
     CONF_SESSION_COOKIE,
     CONF_TIME_UNIT,
+    DEFAULT_TIME_UNIT,
     CONF_TIMEZONE,
     CONF_UPDATE_INTERVAL_HOURS,
     DEFAULT_TIMEZONE,
@@ -105,9 +110,8 @@ class OriginEnergyConfigFlow(ConfigFlow, domain=DOMAIN):
         session = async_create_clientsession(self.hass, auto_cleanup=False)
         try:
             tokens = await async_login_with_cookie(session, cookie)
-            services = await OriginEnergyApiClient(
-                session, tokens.access_token
-            ).async_get_services("ELECTRICITY")
+            client = OriginEnergyApiClient(session, tokens.access_token)
+            services = await client.async_get_all_electricity_services()
 
             # An account can list a closed agreement alongside the live one,
             # so services[0] is whichever the gateway happened to return
@@ -121,8 +125,13 @@ class OriginEnergyConfigFlow(ConfigFlow, domain=DOMAIN):
                 ).get("timezone")
                 or DEFAULT_TIMEZONE
             )
-            time_unit = pick_time_unit(service.get("availableUsageTimeUnits"))
-            _LOGGER.debug("Origin Energy usage granularity: %s", time_unit)
+            service_type = service.get("type") or "ELECTRICITY"
+            time_unit = await self._async_probe_time_unit(
+                client, service["agreementId"], service_type
+            )
+            _LOGGER.debug(
+                "Origin Energy service %s granularity %s", service_type, time_unit
+            )
 
             return {
                 # Persist the cookie Auth0 handed back, not the one pasted in
@@ -131,6 +140,7 @@ class OriginEnergyConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_AGREEMENT_ID: service["agreementId"],
                 CONF_TIMEZONE: timezone,
                 CONF_TIME_UNIT: time_unit,
+                CONF_SERVICE_TYPE: service_type,
                 "nmi": (service.get("meterPoint") or {}).get("identifier"),
             }, None
         except OriginEnergyBlocked:
@@ -146,6 +156,31 @@ class OriginEnergyConfigFlow(ConfigFlow, domain=DOMAIN):
             return None, "unknown"
         finally:
             session.detach()
+
+    async def _async_probe_time_unit(
+        self, client: OriginEnergyApiClient, agreement_id: str, service_type: str
+    ) -> str:
+        """Finest granularity that actually returns data for this service.
+
+        availableUsageTimeUnits under-reports on embedded meters (it lists
+        only BILLING while HOURLY works), so the reported list is ignored in
+        favour of asking the API directly with a short probe window.
+        """
+        now = datetime.now(timezone.utc)
+        for unit in PROBE_TIME_UNITS:
+            try:
+                window = await client.async_get_usage(
+                    agreement_id,
+                    now - timedelta(days=2),
+                    now,
+                    unit,
+                    service_type=service_type,
+                )
+            except OriginEnergyApiError:
+                continue
+            if window.points:
+                return unit
+        return DEFAULT_TIME_UNIT
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
