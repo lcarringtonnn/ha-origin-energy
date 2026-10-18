@@ -16,6 +16,19 @@ to the start of your agreement.
 ![Electricity](https://img.shields.io/badge/fuel-electricity-yellow)
 ![hacs](https://img.shields.io/badge/HACS-custom%20repository-orange)
 
+## About this repository
+
+This is a fork of
+[JKook-Plus/ha-origin-energy](https://github.com/JKook-Plus/ha-origin-energy).
+It adds support for **embedded-network electricity**, which is what
+Origin calls a meter for a unit or apartment behind a building's parent
+meter. The upstream integration only looked for standard electricity
+services, so setup failed on these accounts with "no electricity
+service". Standard electricity accounts work as they do upstream.
+
+Current release: **0.2.1** (embedded network support). The fork is
+otherwise level with upstream.
+
 ## What you get
 
 - **Hourly** consumption and cost as long-term statistics, ready to select
@@ -23,17 +36,19 @@ to the start of your agreement.
 - A **historical backfill** on first run, going back to the day your
   agreement started (or two years, whichever is shorter).
 - **Revisions applied.** Origin restates the last day or two once meter
-  data settles; each poll re-reads a trailing window and corrects what
-  changed instead of leaving the first guess in place.
+  data settles. Each poll re-reads a trailing window of five days and
+  corrects what changed instead of leaving the first guess in place.
+- **Standard and embedded-network electricity.** Setup looks for both
+  service types and picks the active agreement.
 - One `sensor.origin_energy_last_update` timestamp for automations that
   want to know the import ran.
 
 Origin publishes usage once a day and always a day or so behind, in a
 single batch covering the whole previous day. The hour that batch lands
 moves around, so this polls **every 4 hours** by default rather than
-racing it once a day — change it under **Configure** on the integration
-(1–24 hours). It is not, and cannot be, a live power meter — for that you
-want a CT clamp or a smart plug.
+racing it once a day. Change it under **Configure** on the integration
+(1 to 24 hours). It is not, and cannot be, a live power meter. For that
+you want a CT clamp or a smart plug.
 
 ## Requirements
 
@@ -48,15 +63,18 @@ want a CT clamp or a smart plug.
 ### HACS
 
 1. Install [HACS](https://hacs.xyz/docs/setup/download) if you haven't already.
-2. [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=JKook-Plus&repository=ha-origin-energy&category=integration)
+2. [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=lcarringtonnn&repository=ha-origin-energy&category=integration)
 3. Press **Download**.
 4. Restart Home Assistant.
 
-That button adds this repository to HACS for you. If it doesn't work — the
+That button adds this repository to HACS for you. If it doesn't work (the
 My Home Assistant links need to be [set up
-once](https://my.home-assistant.io/) per instance — do it by hand instead:
-**HACS → ⋮ → Custom repositories**, add this repository's URL with category
-**Integration**, then install **Origin Energy** and restart.
+once](https://my.home-assistant.io/) per instance), do it by hand instead:
+**HACS > three-dot menu > Custom repositories**, add this repository's URL
+with category **Integration**, then install **Origin Energy** and restart.
+
+If you already installed the upstream version, remove it first so the two
+do not both claim the `origin_energy` domain.
 
 ### Manual
 
@@ -67,54 +85,58 @@ directory and restart Home Assistant.
 
 [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=origin_energy)
 
-Or by hand: **Settings → Devices & services → Add integration → Origin
+Or by hand: **Settings > Devices & services > Add integration > Origin
 Energy.**
 
 It asks for one thing: a session cookie. Origin's login form is behind
 Kasada bot protection that refuses any non-browser client, so there is no
-username-and-password path — you sign in once in a real browser and hand
+username-and-password path. You sign in once in a real browser and hand
 over the resulting session.
 
 To get it:
 
 1. Sign in at [originenergy.com.au](https://www.originenergy.com.au)
-   **with DevTools closed** — the bot protection fails the login silently
+   **with DevTools closed**. The bot protection fails the login silently
    if the panel is open.
 2. In the same tab, go to
    `https://id.originenergy.com.au/.well-known/jwks.json`. It is just
    Auth0's public keys; the point is to land on that domain so its cookies
    become visible.
-3. DevTools (<kbd>F12</kbd>) → **Application** (or **Storage** in Firefox)
-   → **Cookies** → `https://id.originenergy.com.au`.
-4. Copy the full value of the **`auth0`** cookie — click the row and copy
+3. DevTools (<kbd>F12</kbd>) > **Application** (or **Storage** in Firefox)
+   > **Cookies** > `https://id.originenergy.com.au`.
+4. Copy the full value of the **`auth0`** cookie. Click the row and copy
    from the detail pane, since the column truncates it. It starts with
    `s%3A`. Don't grab `auth0_compat`, which sits next to it and looks
    nearly identical.
 5. Paste it into Home Assistant.
+
+The cookie is a live session credential. Treat it like a password and
+never post it in an issue or a log.
 
 [docs/session-cookie.md](docs/session-cookie.md) has a fallback method and
 more detail on why it works this way.
 
 **You should only need to do this once.** Auth0 pushes the cookie's ~100
 day expiry forward every time the integration refreshes, and the new value
-is saved back, so a daily poll keeps the session alive indefinitely. If it
-ever does lapse, Home Assistant raises a re-authentication prompt and your
-history is kept.
+is saved back, so a regular poll keeps the session alive indefinitely. If
+it ever does lapse, Home Assistant raises a re-authentication prompt and
+your history is kept. Re-authenticating with a different Origin account is
+refused, so statistics are never pointed at someone else's meter.
 
 ## Add it to the Energy dashboard
 
-Nothing appears automatically — you have to point the dashboard at the
+Nothing appears automatically. You have to point the dashboard at the
 statistics once. The first import runs in the background and takes a
 minute or two, so if the dropdowns are empty, give it a moment and
 reload.
 
-Go to **Settings → Dashboards → Energy → Grid consumption → Add
+Go to **Settings > Dashboards > Energy > Grid consumption > Add
 consumption**, and in the *Configure grid connection* dialog:
 
 | Field | Set it to |
 |---|---|
 | **Energy imported from grid** | `Origin Energy consumption` |
-| **Energy exported to grid** | *leave empty* — solar export isn't imported yet |
+| **Energy exported to grid** | *leave empty* (solar export isn't imported yet) |
 | **Cost tracking** | **Use an entity tracking the total costs** |
 | **Entity with the total costs** | `Origin Energy cost` |
 | **Type of power measurement** | **No power sensor** |
@@ -122,7 +144,7 @@ consumption**, and in the *Configure grid connection* dialog:
 Then **Save**.
 
 Two of those are easy to get wrong. *Use an entity with current price*
-looks plausible but is for a live tariff — Origin gives costs already
+looks plausible but is for a live tariff. Origin gives costs already
 calculated, so the total-cost option is the right one. And **No power
 sensor** is correct rather than a limitation: power sensors measure
 instantaneous watts, and this data is hourly totals arriving a day late.
@@ -139,17 +161,24 @@ Statistics are named `origin_energy:<agreement>_energy_consumption` and
 
 The list only offers statistics that already exist, so an empty dropdown
 means the backfill hasn't written anything yet. Check
-**Developer tools → Statistics** and filter for `origin_energy` — if
+**Developer tools > Statistics** and filter for `origin_energy`. If
 nothing is there, see [Troubleshooting](#troubleshooting).
 
 ## Limitations
 
-Measured against a live account, not assumed —
+Measured against a live account, not assumed.
 [docs/api-reference.md](docs/api-reference.md) has the evidence.
 
 - **Electricity only.** The API exposes gas usage in the same shape, but
   it has never been tested against a real gas account, so it is not
   offered rather than shipped on a guess.
+- **Embedded-network cost is calculated, not reported.** Origin leaves the
+  cost empty on hourly points for these meters. The integration works out
+  a flat usage rate from the billing data of the last 95 days
+  (usage cost divided by energy used) and prices each hour as kWh times
+  that rate. That is right for a single flat tariff. It does not model
+  time-of-use rates and adds nothing for supply charges. If no billing
+  period with usage cost is found, the hourly cost is recorded as zero.
 - **A day behind.** Origin's own `lastReadingDate` is typically yesterday.
   Nothing can make this real-time.
 - **History starts at your agreement.** Data does not exist before
@@ -162,17 +191,21 @@ Measured against a live account, not assumed —
 
 ## Troubleshooting
 
-**"That session cookie was rejected."** The value is usually truncated —
-copy it from the detail pane rather than the Value column. Check it starts
+**"That session cookie was rejected."** The value is usually truncated.
+Copy it from the detail pane rather than the Value column. Check it starts
 with `s%3A`, and that you took `auth0` rather than `auth0_compat`.
 
 **"Origin's bot protection refused the request."** Different problem: the
 request never reached the login server, so your cookie is probably fine.
 Wait a few minutes and retry.
 
+**"No electricity service found on this account."** The API returned no
+standard or embedded-network electricity service for the signed-in
+account. Gas is not supported.
+
 **Energy dashboard shows nothing.** The backfill runs in the background
 after setup; give it a minute, then check
-**Developer tools → Statistics** for `origin_energy:`. The dashboard only
+**Developer tools > Statistics** for `origin_energy:`. The dashboard only
 lists statistics that already exist.
 
 **Numbers stop updating.** Check the `sensor.origin_energy_last_update`
@@ -192,7 +225,7 @@ python3 tools/test_statistics_unit.py  # sums, units, de-duplication, DST fold
 ```
 
 Both run offline against a faked session, but import Home Assistant, so
-run them wherever HA is installed — inside the container is easiest:
+run them wherever HA is installed. Inside the container is easiest:
 
 ```bash
 docker cp custom_components/origin_energy homeassistant:/tmp/origin_energy_test/
@@ -201,27 +234,47 @@ docker exec -i homeassistant python3 /tmp/origin_energy_test/test_api_unit.py
 ```
 
 `tools/verify_against_csv.py` reconciles the API against a CSV export
-downloaded from My Account — the end-to-end check worth running after any
-change to the query or import path. See [tools/README.md](tools/README.md).
+downloaded from My Account. It is the end-to-end check worth running after
+any change to the query or import path. See [tools/README.md](tools/README.md).
+
+On GitHub, pushes and pull requests run HACS and hassfest validation
+(`.github/workflows/validate.yml`). Publishing a release builds and
+attaches `origin_energy.zip` (`.github/workflows/release.yml`).
+
+### Branches and releases
+
+- `main`: the only branch. It carries everything released so far.
+- Tags and releases: `0.1.0`, `0.2.0` and `0.2.1` (latest, embedded network
+  support). The release version is in
+  `custom_components/origin_energy/manifest.json`.
+- The `upstream` remote, if you add one, is JKook-Plus's original.
+
+Note that `manifest.json` still lists the upstream author as code owner
+and points its documentation and issue links at the upstream repository.
 
 ## How it works
 
 Home Assistant's long-term statistics take hourly buckets carrying an
 absolute running sum, which is exactly the shape Origin returns: dated
 totals rather than a ticking meter. So the integration writes **external
-statistics** directly instead of faking an ever-increasing sensor — the
+statistics** directly instead of faking an ever-increasing sensor, the
 same approach core's `opower` integration uses for utility billing data.
 
-**The energy data is not an entity.** `origin_energy:…_energy_consumption`
-and `…_energy_cost` are statistics, not sensors: they live in the
-recorder's `statistics` table, appear under **Developer tools →
-Statistics**, and will not show up in **Developer tools → States** or in
+**The energy data is not an entity.** `origin_energy:..._energy_consumption`
+and `..._energy_cost` are statistics, not sensors: they live in the
+recorder's `statistics` table, appear under **Developer tools >
+Statistics**, and will not show up in **Developer tools > States** or in
 templates. The Energy dashboard reads statistics directly, which is why
 this works without an entity in between.
 
-The one real entity is `sensor.origin_energy_last_update` — a timestamp of
+The one real entity is `sensor.origin_energy_last_update`, a timestamp of
 the last successful import, for automations and troubleshooting. No energy
 data flows through it.
+
+At setup the integration asks for the finest granularity that actually
+returns data (hourly, then daily, then billing). Embedded-network meters
+list only billing in their available units while still serving hourly
+data, so the reported list is not trusted.
 
 Consequences worth knowing:
 
@@ -234,9 +287,9 @@ Consequences worth knowing:
 
 ## Licence
 
-The **code** is MIT — see [LICENSE](LICENSE).
+The **code** is MIT. See [LICENSE](LICENSE).
 
 That licence does not extend to Origin Energy's trademarks or logo, which
 remain their property. If you fork or redistribute this, the marks are
-yours to consider separately — [TRADEMARKS.md](TRADEMARKS.md) sets out the
+yours to consider separately. [TRADEMARKS.md](TRADEMARKS.md) sets out the
 position, including how to get them removed.
